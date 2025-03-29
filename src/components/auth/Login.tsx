@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   TextField,
@@ -8,33 +8,131 @@ import {
   Checkbox,
   FormControlLabel,
   Grid,
+  Alert,
+  Snackbar,
 } from "@mui/material";
-import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import GoogleIcon from "@mui/icons-material/Google";
 import loginIllustration from "../../assets/login-illustration.svg";
+import axios from "axios";
+import Cookies from 'js-cookie';
+
+const API_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.API_URL) ||
+  (window as any).env?.API_URL ||
+  "http://web-nlb-1ff1424ac6da9897.elb.us-east-1.amazonaws.com";
+
+interface AuthTokens {
+  access: string;
+  refresh: string;
+}
 
 export const Login: React.FC = () => {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
-  const { login } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [, setIsAuthenticated] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = () => {
+      const accessToken = Cookies.get('access_token');
+      const refreshToken = Cookies.get('refresh_token');
+      
+      if (accessToken && refreshToken) {
+        axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
+        setIsAuthenticated(true);
+        navigate("/products");
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
+
+  const login = async (username: string, password: string): Promise<void> => {
+    try {
+      const response = await axios.post(`${API_URL}/token/`, {
+        username,
+        password,
+      });
+
+      console.log("Login response:", response.data);
+
+      const tokens: AuthTokens = {
+        access: response.data.access,
+        refresh: response.data.refresh,
+      };
+
+      const cookieOptions = {
+        expires: rememberMe ? 30 : undefined,
+        secure: window.location.protocol === 'https:',
+        sameSite: 'strict' as const,
+        path: '/'
+      };
+      
+      Cookies.set('access_token', tokens.access, cookieOptions);
+      Cookies.set('refresh_token', tokens.refresh, cookieOptions);
+
+      Cookies.set('username', username, cookieOptions);
+
+      axios.defaults.headers.common["Authorization"] = `Bearer ${tokens.access}`;
+
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error("Login failed:", error);
+      throw error;
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setLoading(true);
+
     try {
-      await login(email, password);
+      await login(username, password);
       navigate("/products");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed:", error);
+
+      if (error.response) {
+        if (error.response.status === 401) {
+          setError(
+            "Invalid credentials. Please check your username and password."
+          );
+        } else {
+          setError(
+            `Login failed: ${error.response.data.detail || "Unknown error"}`
+          );
+        }
+      } else if (error.request) {
+        setError("Server not responding. Please try again later.");
+      } else {
+        setError("An error occurred. Please try again.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <Box sx={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
+      {error && (
+        <Snackbar
+          open={!!error}
+          autoHideDuration={6000}
+          onClose={() => setError(null)}
+          anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        >
+          <Alert onClose={() => setError(null)} severity="error">
+            {error}
+          </Alert>
+        </Snackbar>
+      )}
+
       <Grid container sx={{ height: "100%" }}>
-        {/* Left Side - Login Form */}
         <Grid
           item
           xs={12}
@@ -84,16 +182,15 @@ export const Login: React.FC = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Email address
+                  Username
                 </Typography>
                 <TextField
                   fullWidth
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   required
-                  type="email"
                   variant="outlined"
-                  placeholder="Enter your email"
+                  placeholder="Enter your username"
                   sx={{
                     "& .MuiOutlinedInput-root": {
                       borderRadius: "8px",
@@ -176,6 +273,7 @@ export const Login: React.FC = () => {
                 variant="contained"
                 fullWidth
                 size="large"
+                disabled={loading}
                 sx={{
                   mb: 2,
                   height: "52px",
@@ -185,7 +283,7 @@ export const Login: React.FC = () => {
                   fontWeight: 600,
                 }}
               >
-                Sign in
+                {loading ? "Signing in..." : "Sign in"}
               </Button>
 
               <Button
@@ -230,7 +328,6 @@ export const Login: React.FC = () => {
           </Box>
         </Grid>
 
-        {/* Right Side - Illustration */}
         <Grid
           item
           xs={12}

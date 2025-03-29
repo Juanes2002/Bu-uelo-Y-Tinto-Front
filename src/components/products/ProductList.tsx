@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Container,
@@ -14,14 +14,37 @@ import {
   InputAdornment,
   AppBar,
   Toolbar,
+  CircularProgress,
+  Alert,
 } from "@mui/material";
 import {
   Add as AddIcon,
   Search as SearchIcon,
   Close as CloseIcon,
 } from "@mui/icons-material";
-import { products } from "../../data/products";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import Cookies from 'js-cookie';
+
+const API_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.API_URL) ||
+  (window as any).env?.API_URL ||
+  "http://web-nlb-1ff1424ac6da9897.elb.us-east-1.amazonaws.com";
+
+interface Product {
+  id: number;
+  name: string;
+  description: string;
+  price: string;
+  image: string;
+  available: boolean;
+  created_at: string;
+  updated_at: string;
+  is_active: boolean;
+  deleted_at: string | null;
+  created_by: number;
+  updated_by: number;
+}
 
 interface NewProduct {
   name: string;
@@ -34,6 +57,10 @@ interface NewProduct {
 export const ProductList: React.FC = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
   const [newProduct, setNewProduct] = useState<NewProduct>({
     name: "",
     description: "",
@@ -42,19 +69,209 @@ export const ProductList: React.FC = () => {
     category: "food",
   });
 
+  const getAuthToken = (): string | undefined => {
+    return Cookies.get('access_token');
+  };
+
+  const setupAxiosAuth = (): boolean => {
+    const token = getAuthToken();
+    if (token) {
+      axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      return true;
+    }
+    return false;
+  };
+
+  const refreshAuthToken = async (): Promise<boolean> => {
+    const refreshToken = Cookies.get('refresh_token');
+    if (!refreshToken) return false;
+    
+    try {
+      const response = await axios.post(`${API_URL}/token/refresh/`, {
+        refresh: refreshToken
+      });
+      
+      Cookies.set('access_token', response.data.access, { 
+        path: '/',
+        secure: window.location.protocol === 'https:',
+        sameSite: 'strict'
+      });
+      
+      axios.defaults.headers.common["Authorization"] = `Bearer ${response.data.access}`;
+      
+      return true;
+    } catch (error) {
+      console.error("Failed to refresh token:", error);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const checkAuth = () => {
+      const accessToken = getAuthToken();
+      if (!accessToken) {
+        navigate("/login");
+      }
+    };
+    
+    checkAuth();
+  }, [navigate]);
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    setError(null);
+    console.log(API_URL)
+    console.log(`${API_URL}/api/products/`)
+    
+    try {
+      setupAxiosAuth();
+      
+      const response = await axios.get(`${API_URL}/api/products/`);
+      console.log("API Response:", response.data);
+      
+      if (Array.isArray(response.data)) {
+        setProducts(response.data);
+      } else if (response.data && typeof response.data === 'object') {
+        if (Array.isArray(response.data.results)) {
+          setProducts(response.data.results);
+        } else if (response.data.id) {
+          setProducts([response.data]);
+        } else {
+          const productsArray = Object.values(response.data).filter(
+            item => item && typeof item === 'object' && 'id' in item
+          ) as Product[];
+          
+          if (productsArray.length > 0) {
+            setProducts(productsArray);
+          } else {
+            console.error("Unexpected API response structure:", response.data);
+            setError("Error: Unexpected API response format");
+            setProducts([]);
+          }
+        }
+      } else {
+        console.error("Unexpected API response:", response.data);
+        setError("Error: Unexpected API response format");
+        setProducts([]);
+      }
+    } catch (error: any) {
+      console.error("Error fetching products:", error);
+      
+      if (error.response) {
+        if (error.response.status === 401) {
+          const refreshed = await refreshAuthToken();
+          
+          if (refreshed) {
+            try {
+              const retryResponse = await axios.get(`${API_URL}/api/products/`);
+              if (Array.isArray(retryResponse.data)) {
+                setProducts(retryResponse.data);
+              } else if (retryResponse.data && typeof retryResponse.data === 'object') {
+                if (Array.isArray(retryResponse.data.results)) {
+                  setProducts(retryResponse.data.results);
+                } else if (retryResponse.data.id) {
+                  setProducts([retryResponse.data]);
+                } else {
+                  const productsArray = Object.values(retryResponse.data).filter(
+                    item => item && typeof item === 'object' && 'id' in item
+                  ) as Product[];
+                  
+                  if (productsArray.length > 0) {
+                    setProducts(productsArray);
+                  } else {
+                    console.error("Unexpected API response structure after refresh:", retryResponse.data);
+                    setError("Error: Unexpected API response format");
+                    setProducts([]);
+                  }
+                }
+              } else {
+                setProducts([]);
+              }
+              setError(null);
+              setLoading(false);
+              return;
+            } catch (retryError) {
+              console.error("Error after token refresh:", retryError);
+            }
+          }
+          
+          setError("You are not authorized. Please log in again.");
+          setTimeout(() => {
+            navigate("/login");
+          }, 2000);
+        } else {
+          setError(`Error: ${error.response.data.detail || 'Failed to fetch products'}`);
+        }
+      } else if (error.request) {
+        setError("Server not responding. Please try again later.");
+      } else {
+        setError("An error occurred. Please try again.");
+      }
+      
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Here you would typically make an API call to save the new product
-    console.log("New product:", newProduct);
-    handleClose();
+    
+    try {
+      setupAxiosAuth();
+      
+      const productData = {
+        name: newProduct.name,
+        description: newProduct.description,
+        price: newProduct.price,
+        image: newProduct.image,
+        available: true,
+      };
+      
+      await axios.post(`${API_URL}/api/products/`, productData);
+      
+      fetchProducts();
+      
+      handleClose();
+      setNewProduct({
+        name: "",
+        description: "",
+        price: "",
+        image: "",
+        category: "food",
+      });
+    } catch (error) {
+      console.error("Error creating product:", error);
+    }
   };
 
-  const handleOrderClick = (productId: string) => {
+  const handleOrderClick = (productId: number) => {
     navigate(`/order/${productId}`);
   };
+
+  const handleLogout = () => {
+    Cookies.remove('access_token', { path: '/' });
+    Cookies.remove('refresh_token', { path: '/' });
+    Cookies.remove('username', { path: '/' });
+    
+    delete axios.defaults.headers.common["Authorization"];
+    
+    navigate("/login");
+  };
+
+  const filteredProducts = Array.isArray(products) 
+    ? products.filter(product => 
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : [];
 
   return (
     <Box
@@ -77,17 +294,29 @@ export const ProductList: React.FC = () => {
             >
               Chimba de App Buñuelo y Tinto
             </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleOpen}
-              sx={{
-                borderRadius: "8px",
-                textTransform: "none",
-              }}
-            >
-              Add Product
-            </Button>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleOpen}
+                sx={{
+                  borderRadius: "8px",
+                  textTransform: "none",
+                }}
+              >
+                Add Product
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleLogout}
+                sx={{
+                  borderRadius: "8px",
+                  textTransform: "none",
+                }}
+              >
+                Logout
+              </Button>
+            </Box>
           </Toolbar>
         </Container>
       </AppBar>
@@ -113,7 +342,7 @@ export const ProductList: React.FC = () => {
               fontSize: { xs: "2rem", sm: "2.5rem", md: "3rem" },
             }}
           >
-            DIscover our menu!
+            Discover our menu!
           </Typography>
           <Box
             sx={{
@@ -127,6 +356,8 @@ export const ProductList: React.FC = () => {
               fullWidth
               placeholder="Search for food..."
               variant="outlined"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -162,104 +393,124 @@ export const ProductList: React.FC = () => {
           mx: "auto",
         }}
       >
-        <Grid container spacing={3}>
-          {products.map((product) => (
-            <Grid item key={product.id} xs={12} sm={6} md={4} lg={3}>
-              <Card
-                sx={{
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  borderRadius: "12px",
-                  transition: "all 0.3s ease",
-                  "&:hover": {
-                    transform: "translateY(-4px)",
-                    boxShadow: (theme) => theme.shadows[4],
-                  },
-                }}
-              >
-                <CardMedia
-                  component="img"
-                  height="240"
-                  image={product.image}
-                  alt={product.name}
+        {error && (
+          <Alert severity="error" sx={{ mb: 4 }}>
+            {error}
+          </Alert>
+        )}
+
+        {loading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+            <CircularProgress />
+          </Box>
+        ) : filteredProducts.length === 0 ? (
+          <Box sx={{ textAlign: "center", py: 8 }}>
+            <Typography variant="h6" color="text.secondary">
+              {searchTerm ? "No products found matching your search." : "No products available."}
+            </Typography>
+          </Box>
+        ) : (
+          <Grid container spacing={3}>
+            {filteredProducts.map((product) => (
+              <Grid item key={product.id} xs={12} sm={6} md={4} lg={3}>
+                <Card
                   sx={{
-                    objectFit: "cover",
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                  }}
-                />
-                <CardContent
-                  sx={{
-                    flexGrow: 1,
+                    height: "100%",
                     display: "flex",
                     flexDirection: "column",
-                    gap: 2,
-                    p: 3,
+                    borderRadius: "12px",
+                    transition: "all 0.3s ease",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: (theme) => theme.shadows[4],
+                    },
+                    opacity: product.available ? 1 : 0.7,
                   }}
                 >
-                  <Typography
-                    variant="h6"
-                    component="h2"
+                  <CardMedia
+                    component="img"
+                    height="240"
+                    image={product.image}
+                    alt={product.name}
                     sx={{
-                      fontWeight: 600,
-                      fontSize: "1.25rem",
+                      objectFit: "cover",
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
                     }}
-                  >
-                    {product.name}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
+                  />
+                  <CardContent
                     sx={{
                       flexGrow: 1,
-                      minHeight: "3em",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {product.description}
-                  </Typography>
-                  <Box
-                    sx={{
                       display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      mt: "auto",
-                      pt: 2,
-                      borderTop: "1px solid",
-                      borderColor: "divider",
+                      flexDirection: "column",
+                      gap: 2,
+                      p: 3,
                     }}
                   >
                     <Typography
                       variant="h6"
-                      component="p"
+                      component="h2"
                       sx={{
-                        color: "primary.main",
                         fontWeight: 600,
                         fontSize: "1.25rem",
                       }}
                     >
-                      ${product.price.toFixed(2)}
+                      {product.name}
                     </Typography>
-                    <Button
-                      variant="contained"
-                      size="medium"
-                      onClick={() => handleOrderClick(product.id)}
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
                       sx={{
-                        borderRadius: "8px",
-                        textTransform: "none",
-                        px: 3,
-                        py: 1,
+                        flexGrow: 1,
+                        minHeight: "3em",
+                        lineHeight: 1.5,
                       }}
                     >
-                      Order Now
-                    </Button>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+                      {product.description}
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mt: "auto",
+                        pt: 2,
+                        borderTop: "1px solid",
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Typography
+                        variant="h6"
+                        component="p"
+                        sx={{
+                          color: "primary.main",
+                          fontWeight: 600,
+                          fontSize: "1.25rem",
+                        }}
+                      >
+                        ${parseFloat(product.price).toFixed(2)}
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        size="medium"
+                        onClick={() => handleOrderClick(product.id)}
+                        disabled={!product.available}
+                        sx={{
+                          borderRadius: "8px",
+                          textTransform: "none",
+                          px: 3,
+                          py: 1,
+                        }}
+                      >
+                        {product.available ? "Order Now" : "Not Available"}
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
       </Container>
 
       {/* Add Product Modal */}
