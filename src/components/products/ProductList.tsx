@@ -24,7 +24,7 @@ import {
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import Cookies from 'js-cookie';
+import Cookies from "js-cookie";
 
 const API_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.API_URL) ||
@@ -70,7 +70,7 @@ export const ProductList: React.FC = () => {
   });
 
   const getAuthToken = (): string | undefined => {
-    return Cookies.get('access_token');
+    return Cookies.get("access_token");
   };
 
   const setupAxiosAuth = (): boolean => {
@@ -83,22 +83,24 @@ export const ProductList: React.FC = () => {
   };
 
   const refreshAuthToken = async (): Promise<boolean> => {
-    const refreshToken = Cookies.get('refresh_token');
+    const refreshToken = Cookies.get("refresh_token");
     if (!refreshToken) return false;
-    
+
     try {
       const response = await axios.post(`${API_URL}/token/refresh/`, {
-        refresh: refreshToken
+        refresh: refreshToken,
       });
-      
-      Cookies.set('access_token', response.data.access, { 
-        path: '/',
-        secure: window.location.protocol === 'https:',
-        sameSite: 'strict'
+
+      Cookies.set("access_token", response.data.access, {
+        path: "/",
+        secure: window.location.protocol === "https:",
+        sameSite: "strict",
       });
-      
-      axios.defaults.headers.common["Authorization"] = `Bearer ${response.data.access}`;
-      
+
+      axios.defaults.headers.common[
+        "Authorization"
+      ] = `Bearer ${response.data.access}`;
+
       return true;
     } catch (error) {
       console.error("Failed to refresh token:", error);
@@ -113,34 +115,34 @@ export const ProductList: React.FC = () => {
         navigate("/login");
       }
     };
-    
+
     checkAuth();
   }, [navigate]);
 
   const fetchProducts = async () => {
     setLoading(true);
     setError(null);
-    console.log(API_URL)
-    console.log(`${API_URL}/api/products/`)
-    
+    console.log(API_URL);
+    console.log(`${API_URL}/api/products/`);
+
     try {
       setupAxiosAuth();
-      
+
       const response = await axios.get(`${API_URL}/api/products/`);
       console.log("API Response:", response.data);
-      
+
       if (Array.isArray(response.data)) {
         setProducts(response.data);
-      } else if (response.data && typeof response.data === 'object') {
+      } else if (response.data && typeof response.data === "object") {
         if (Array.isArray(response.data.results)) {
           setProducts(response.data.results);
         } else if (response.data.id) {
           setProducts([response.data]);
         } else {
           const productsArray = Object.values(response.data).filter(
-            item => item && typeof item === 'object' && 'id' in item
+            (item) => item && typeof item === "object" && "id" in item
           ) as Product[];
-          
+
           if (productsArray.length > 0) {
             setProducts(productsArray);
           } else {
@@ -156,30 +158,38 @@ export const ProductList: React.FC = () => {
       }
     } catch (error: any) {
       console.error("Error fetching products:", error);
-      
+
       if (error.response) {
         if (error.response.status === 401) {
           const refreshed = await refreshAuthToken();
-          
+
           if (refreshed) {
             try {
               const retryResponse = await axios.get(`${API_URL}/api/products/`);
               if (Array.isArray(retryResponse.data)) {
                 setProducts(retryResponse.data);
-              } else if (retryResponse.data && typeof retryResponse.data === 'object') {
+              } else if (
+                retryResponse.data &&
+                typeof retryResponse.data === "object"
+              ) {
                 if (Array.isArray(retryResponse.data.results)) {
                   setProducts(retryResponse.data.results);
                 } else if (retryResponse.data.id) {
                   setProducts([retryResponse.data]);
                 } else {
-                  const productsArray = Object.values(retryResponse.data).filter(
-                    item => item && typeof item === 'object' && 'id' in item
+                  const productsArray = Object.values(
+                    retryResponse.data
+                  ).filter(
+                    (item) => item && typeof item === "object" && "id" in item
                   ) as Product[];
-                  
+
                   if (productsArray.length > 0) {
                     setProducts(productsArray);
                   } else {
-                    console.error("Unexpected API response structure after refresh:", retryResponse.data);
+                    console.error(
+                      "Unexpected API response structure after refresh:",
+                      retryResponse.data
+                    );
                     setError("Error: Unexpected API response format");
                     setProducts([]);
                   }
@@ -194,20 +204,22 @@ export const ProductList: React.FC = () => {
               console.error("Error after token refresh:", retryError);
             }
           }
-          
+
           setError("You are not authorized. Please log in again.");
           setTimeout(() => {
             navigate("/login");
           }, 2000);
         } else {
-          setError(`Error: ${error.response.data.detail || 'Failed to fetch products'}`);
+          setError(
+            `Error: ${error.response.data.detail || "Failed to fetch products"}`
+          );
         }
       } else if (error.request) {
         setError("Server not responding. Please try again later.");
       } else {
         setError("An error occurred. Please try again.");
       }
-      
+
       setProducts([]);
     } finally {
       setLoading(false);
@@ -223,10 +235,10 @@ export const ProductList: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     try {
       setupAxiosAuth();
-      
+
       const productData = {
         name: newProduct.name,
         description: newProduct.description,
@@ -234,11 +246,11 @@ export const ProductList: React.FC = () => {
         image: newProduct.image,
         available: true,
       };
-      
+
       await axios.post(`${API_URL}/api/products/`, productData);
-      
+
       fetchProducts();
-      
+
       handleClose();
       setNewProduct({
         name: "",
@@ -257,19 +269,20 @@ export const ProductList: React.FC = () => {
   };
 
   const handleLogout = () => {
-    Cookies.remove('access_token', { path: '/' });
-    Cookies.remove('refresh_token', { path: '/' });
-    Cookies.remove('username', { path: '/' });
-    
+    Cookies.remove("access_token", { path: "/" });
+    Cookies.remove("refresh_token", { path: "/" });
+    Cookies.remove("username", { path: "/" });
+
     delete axios.defaults.headers.common["Authorization"];
-    
+
     navigate("/login");
   };
 
-  const filteredProducts = Array.isArray(products) 
-    ? products.filter(product => 
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.description.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredProducts = Array.isArray(products)
+    ? products.filter(
+        (product) =>
+          product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          product.description.toLowerCase().includes(searchTerm.toLowerCase())
       )
     : [];
 
@@ -292,10 +305,10 @@ export const ProductList: React.FC = () => {
               component="div"
               sx={{ flexGrow: 1, color: "text.primary", fontWeight: 600 }}
             >
-              Chimba de App Buñuelo y Tinto
+              Concert Menu App Buñuelo y tinto
             </Typography>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Button
+            <Box sx={{ display: "flex", gap: 2 }}>
+              {/* <Button
                 variant="contained"
                 startIcon={<AddIcon />}
                 onClick={handleOpen}
@@ -305,7 +318,7 @@ export const ProductList: React.FC = () => {
                 }}
               >
                 Add Product
-              </Button>
+              </Button> */}
               <Button
                 variant="outlined"
                 onClick={handleLogout}
@@ -406,7 +419,9 @@ export const ProductList: React.FC = () => {
         ) : filteredProducts.length === 0 ? (
           <Box sx={{ textAlign: "center", py: 8 }}>
             <Typography variant="h6" color="text.secondary">
-              {searchTerm ? "No products found matching your search." : "No products available."}
+              {searchTerm
+                ? "No products found matching your search."
+                : "No products available."}
             </Typography>
           </Box>
         ) : (

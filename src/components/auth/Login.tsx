@@ -161,7 +161,7 @@ export const Login: React.FC = () => {
                   fontSize: { xs: "2rem", sm: "2.5rem" },
                 }}
               >
-                Welcome To Chimba de App Buñuelo y Tinto, 5 pa todos
+                Concert Menu App Buñuelo y tinto
               </Typography>
               <Typography
                 variant="body1"
